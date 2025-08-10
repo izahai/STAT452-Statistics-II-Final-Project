@@ -1,4 +1,4 @@
-# Final Project – STAT452 Applied Statistics for Engineers and Scientists II
+# Final Project – STAT452
 
 **Course:** Applied Statistics for Engineers and Scientists II
 
