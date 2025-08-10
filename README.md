@@ -1,7 +1,9 @@
 # Final Project – STAT452 Applied Statistics for Engineers and Scientists II
 
 **Course:** Applied Statistics for Engineers and Scientists II
+
 **Semester:** 3 2025
+
 **Instructor:** Prof. Nguyen Thi Mong Ngoc
 
 ---
@@ -71,10 +73,13 @@ STAT452-Statistics-II-Final-Project/
 
 ## 👥 Group Members
 
-* \[Nguyen Thanh Hai] – \[23125082]
-* \[Dinh Ho Gia Huy] – \[23125036]
-* \[Nguyen Le Thinh Phuc] – \[23125067]
-* \[Nguyen Ngoc Lam Huy] – \[23125037]
+| Name                 | Student ID |
+| -------------------- | ---------- |
+| Nguyen Thanh Hai     | 23125082   |
+| Dinh Ho Gia Huy      | 23125036   |
+| Nguyen Le Thinh Phuc | 23125067   |
+| Nguyen Ngoc Lam Huy  | 23125037   |
+
 
 ---
 

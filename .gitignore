@@ -1,8 +1,12 @@
 # Ignore everything
 *
 
-# But keep R Markdown files
+# Keep R Markdown files
 !*.Rmd
+
+# Keep the src_code folder and everything in it
+!src_code/
+!src_code/**
 
 # Keep the .gitignore itself
 !.gitignore
