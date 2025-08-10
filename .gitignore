@@ -1,0 +1,8 @@
+# Ignore everything
+*
+
+# But keep R Markdown files
+!*.Rmd
+
+# Keep the .gitignore itself
+!.gitignore
