@@ -15,16 +15,16 @@ library(janitor)     # clean names, tabyl
 library(lubridate)   # dates/years handling
 library(rsample)     # initial_split / rsample API
 library(skimr)       # quick data summaries
+library(knitr)
+library(here)
 
 set.seed(42) # for reproducibility
+knitr::opts_knit$set(root.dir = here::here())
 ```
 
 ## Import data 
 
 ```{r import}
-# Adjust path if CSM.xlsx is in a subfolder, e.g., "dataset/CSM.xlsx"
-setwd("/Users/hainguyen/University/SecondYear/Sem3/STAT452 Statistics II/Project")
-
 raw <- read_xlsx("dataset/CSM.xlsx") %>%
   janitor::clean_names() # snake_case column names
 
