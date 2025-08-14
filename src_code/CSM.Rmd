@@ -33,12 +33,135 @@ head(raw, 3)
 skimr::skim(raw)
 ```
 
-## Including Plots
+## Data visualization
 
-You can also embed plots, for example:
+```{r}
+library(ggplot2)
+library(reshape2)
+library(naniar)   # For missing value plots
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+# Simple missing values summary
+colSums(is.na(raw))
+
+# Percentage missing
+colMeans(is.na(raw)) * 100
+
+# Heatmap style visualization
+ # bar chart of missing % per variable
+
+```
+```{r}
+gg_miss_var(raw) 
+```
+```{r}
+vis_miss(raw) 
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Missing value imputation
+
+```{r}
+library(dplyr)
+
+# median imputation for numeric variables
+raw <- raw %>%
+  mutate(
+    budget = ifelse(is.na(budget), mean(budget, na.rm = TRUE), budget),
+    screens = ifelse(is.na(screens), mean(screens, na.rm = TRUE), screens),
+    `aggregate_followers` = ifelse(is.na(`aggregate_followers`),
+                                   mean(`aggregate_followers`, na.rm = TRUE),
+                                   `aggregate_followers`)
+  )
+```
+
+```{r}
+# check for outliers
+library(ggplot2)
+ggplot(raw, aes(x = "", y = gross)) + 
+  geom_boxplot() + 
+  labs(title = "Gross Revenue Outliers")
+```
+
+
+```{r}
+plot(raw$budget, raw$gross)  
+```
+
+
+## Train/Validation split
+
+```{r}
+set.seed(123)
+library(caret)
+
+trainIndex <- createDataPartition(raw$gross, p = 0.8, list = FALSE)
+train_data <- raw[trainIndex, ]
+test_data <- raw[-trainIndex, ]
+```
+
+```{r}
+nrow(train_data) / nrow(raw)  
+nrow(test_data) / nrow(raw)   
+```
+
+
+## Model selection
+
+```{r}
+full_model <- lm(gross ~ . - movie, data=train_data)
+summary(full_model)
+```
+```{r}
+vif(full_model)
+```
+
+```{r}
+step_model <- step(full_model, direction = "both", trace = FALSE)
+summary(step_model)
+vif(step_model)
+```
+
+`
+```{r}
+df_clean <- train_data[train_data$gross < quantile(train_data$gross, 0.99), ]  
+
+```
+
+```{r}
+full_model <- lm(gross ~ . - movie, data=df_clean)
+summary(full_model)
+```
+```{r}
+step_model <- step(full_model, direction = "both", trace = FALSE)
+summary(step_model)
+vif(step_model)
+``` 
+```{r}
+poly_rating <- lm(gross ~ poly(ratings,2) + budget + screens + sequel + sentiment + views + likes + dislikes + aggregate_followers, data=df_clean)
+summary(poly_rating)
+```
+
+
+```{r}
+poly_rating_budget <- lm(gross ~ poly(ratings,2) + poly(budget,2) + screens + sequel + sentiment + views + likes + dislikes + aggregate_followers, data=df_clean)
+summary(poly_rating_budget)
+```
+```{r}
+poly_rating_budget_scr <- lm(gross ~ poly(ratings,2) + poly(budget,2) + poly(screens,2) + sequel + sentiment + views + likes + dislikes + aggregate_followers, data=df_clean)
+summary(poly_rating_budget_scr)
+vif(poly_rating_budget_scr)
+```
+```{r}
+step_model_poly <- step(poly_rating_budget_scr, direction = "both", trace = FALSE)
+summary(step_model_poly)
+vif(step_model_poly)
+```
+
+
+
+```{r}
+log_m <- lm(log(gross) ~ ratings + log(budget) + screens + sequel + sentiment + log(views) + likes + dislikes + aggregate_followers, data=df_clean)
+summary(log_m)
+vif(log_m)
+```
+
