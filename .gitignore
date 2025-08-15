@@ -10,3 +10,4 @@
 
 # Keep the .gitignore itself
 !.gitignore
+src_code/.DS_Store

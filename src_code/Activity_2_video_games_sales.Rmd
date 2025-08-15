@@ -1,0 +1,39 @@
+---
+title: "Activity_2_video_games_sales"
+author: "Nguyen Thanh Hai"
+date: "2025-08-15"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(skimr)
+library(ggplot2)
+library(dplyr)
+library(janitor)
+library(here)
+
+set.seed(42) # for reproducibility
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+## 1. Load data
+
+
+```{r loadData}
+video_games_sales <- read.csv(here("dataset", "Video_Games_Sales_as_at_22_Dec_2016.csv"), stringsAsFactors = FALSE)
+skim(video_games_sales)
+```
+
+## 2. Data Preprocessing
+
+You can also embed plots, for example:
+
+```{r}
+plot(pressure)
+```
+
