@@ -15,21 +15,369 @@ library(readr)
 library(skimr)   # For descriptive statistics
 library(janitor)
 
+library(tidyverse)
+library(lubridate)
+library(naniar)     # visualising missingness
+
+library(mice)          # Multivariate Imputation by Chained Equations
+library(miceadds)      # convenience wrappers
+library(ggmice)        # nice diagnostics (optional)
+library(ggpubr)        # plotting side-by-side
+library(moments)
+
+library(caret)        # centring / scaling
+
+
+library(VIM)         # graphical checks (optional)
+
+
 knitr::opts_knit$set(root.dir = here::here(".."))
 ```
 
 ## 1. Load the data
 
-
 ```{r loadData}
 # Read the dataset (stored in 'dataset' folder)
-gpu_data <- read_csv(here("dataset", "All-GPUs.csv")) %>%
-  clean_names()  # Standardize column names
+gpu_data <- read_csv(here("dataset", "All_GPUs.csv")) %>% clean_names()  
+# Standardize column names
 
 # View first few rows
 head(gpu_data)
 
 ```
 
+```{r}
+gpu_data <- gpu_data %>% 
+  mutate(across(where(is.character),
+                ~ str_squish(.x) |>                # remove \n + double spaces
+                  na_if("")))                      # convert empty string to NA
+gpu_data <- gpu_data %>% 
+  select(-integrated)
+```
+
 ## 2. Preprocess the Data
 
+### Clean the data
+
+```{r}
+
+```
+
+We remove integrated since it is just negation of dedicated
+
+```{r}
+num_from_string <- function(x) {
+  as.numeric(stringr::str_extract(x, "[0-9.]+"))
+}
+
+num_mhz  <- function(x) num_from_string(x)          # MHz
+num_watt <- function(x) num_from_string(x)          # W
+num_mb   <- function(x) num_from_string(x)          # MB
+num_gb   <- function(x) num_from_string(x)          # GB
+num_nm   <- function(x) num_from_string(x)          # nm
+num_usd  <- function(x) num_from_string(x)          # US$
+num_kb   <- function(x) num_from_string(x)          # kb$
+
+
+extract_psu <- function(x, part = c("watt", "amp")) {
+  part <- match.arg(part)
+  pattern <- if (part == "watt") "(\\d+)\\s*Watt" else "(\\d+)\\s*Amp"
+  as.numeric(str_extract(x, pattern) %>% str_remove_all("(Watt|Amp|s|\\s)"))
+}
+```
+
+```{r}
+## ---- 06-main-munging-pipeline ----------------------------------------------
+# Rationale : Apply the rules given in the project brief, one mutate block keeps
+#             the column–wise transformations explicit and auditable.
+
+gpu_tidy <- gpu_data %>% 
+  
+  mutate(
+    best_resolution      = factor(best_resolution),
+    resolution_wx_h      = factor(resolution_wx_h),
+    manufacturer      = factor(manufacturer),
+    sli_crossfire      = factor(sli_crossfire),
+    boost_clock          = num_mhz(boost_clock),
+    boostable        = factor(!is.na(boost_clock), levels = c(TRUE, FALSE),
+                              labels = c("Yes", "No")),
+    core_speed           = num_mhz(na_if(core_speed, "-")),
+    dvi_connection          = as.integer(dvi_connection),
+    display_port_connection = as.integer(display_port_connection),
+    hdmi_connection         = as.integer(hdmi_connection),
+    vga_connection          = as.integer(vga_connection),
+    dedicated            = factor(dedicated),
+    notebook_gpu         = factor(notebook_gpu),
+    direct_x         = factor(num_from_string(direct_x)),
+    shader           = as.integer(num_from_string(shader)),
+    open_gl          = as.numeric(open_gl),
+    max_power            = num_watt(max_power),
+    memory               = num_mb(memory),                    # MB
+    memory_bandwidth = case_when(
+                          is.na(memory_bandwidth)                 ~ NA_real_,
+                          str_detect(memory_bandwidth, "MB/sec") ~
+                              num_from_string(memory_bandwidth) / 1024,
+                          TRUE                                    ~
+                              num_from_string(memory_bandwidth)
+                       ),
+    memory_speed         = num_mhz(memory_speed),
+    memory_bus           = factor(memory_bus),
+    memory_type          = factor(memory_type),
+    l2_cache = case_when(
+                 is.na(l2_cache)                     ~ NA_real_,
+                 stringr::str_detect(l2_cache, "\\(x") ~ {
+                     base <- num_kb(l2_cache)
+                     mult <- as.numeric(stringr::str_extract(l2_cache,
+                                                             "(?<=x)\\d+"))
+                     base * mult
+                 },
+                 TRUE                                ~ num_kb(l2_cache)
+               ),
+    max_power            = as.integer(max_power),
+    pixel_rate       = num_from_string(pixel_rate),
+    texture_rate     = num_from_string(texture_rate),
+    process              = as.integer(num_nm(process)),
+    
+    ro_ps = case_when(
+              is.na(ro_ps)                       ~ NA_real_,
+              str_detect(ro_ps, "\\(x")          ~ {
+                 base <- num_from_string(ro_ps)
+                 mult <- as.numeric(stringr::str_extract(ro_ps, "(?<=x)\\d+"))
+                 base * mult
+              },
+              TRUE                               ~ num_from_string(ro_ps)
+            ),
+    
+    psu_watt             = extract_psu(psu, "watt"),
+    psu_amp              = extract_psu(psu, "amp"),
+    
+    power_connector      = factor(power_connector, exclude = NULL),
+    
+    release_date  = lubridate::dmy(ifelse(release_date == "Unknown Release Date", 
+                                          NA, release_date)),
+    release_year  = lubridate::year(release_date),
+    
+    release_price = num_usd(release_price)
+  ) %>% 
+  relocate(name, manufacturer, architecture,
+           release_date, release_year, release_price)
+
+```
+
+```{r}
+skim(gpu_tidy) 
+```
+
+```{r}
+
+## ── 1.  Drop the requested columns ───────────────────────────────────────
+gpu_clean <- gpu_tidy %>%                 # start from your tibble
+  select(                                  # keep everything *except* …
+    -name,
+    -architecture,
+    -psu,
+    -release_date,
+    -best_resolution,
+    -boost_clock,
+    -psu_watt,
+    -psu_amp,
+  )
+
+## ── 2.  Replace the specified NA values  ─────────────────────────────────
+gpu_clean <- gpu_clean %>%
+  ## dedicated  (factor)  → NA  ⇒  "No"
+  mutate(
+    dedicated = factor(
+      if_else(is.na(dedicated), "No", as.character(dedicated)),
+      levels = c("No", "Yes")     # keep the original level order
+    )
+  ) %>%
+  ## All the other variables (numeric / integer)  → NA  ⇒  0
+  mutate(
+    across(
+      c(dvi_connection, display_port_connection, hdmi_connection,
+        vga_connection, open_gl, shader, ro_ps, tm_us),
+      ~ replace_na(., 0)
+    )
+  )
+
+```
+
+```{r}
+skim(gpu_clean)
+```
+
+```{r}
+gpu_filtered <- gpu_clean %>%          # after the previous steps
+#  filter(!is.na(core_speed)) %>%        # keep only rows with core_speed present
+ 
+  # 1.  DROP rows whose memory is NA while the GPU is dedicated
+  filter(!(is.na(memory) & dedicated == "Yes")) %>% 
+  
+  # 2.  For the remaining rows, turn the still-missing memory values
+  #     (these are all non-dedicated GPUs) into 0
+  mutate(memory = replace_na(memory, 0))
+skim(gpu_filtered)
+```
+
+```{r}
+
+```
+
+### Inspect on missing pattern
+
+```{r}
+gpu_check_missing_pattern <- gpu_tidy %>% 
+  mutate(miss_release_price = is.na(release_price))
+
+gg_missing_price <- gpu_check_missing_pattern %>% 
+  group_by(release_year) %>% 
+  summarise(prop_missing = mean(miss_release_price, na.rm = TRUE),
+            n_obs        = n()) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = release_year, y = prop_missing)) +
+  geom_col(fill = "steelblue") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(title = "Proportion of missing release_price by release year",
+       x     = "Release year",
+       y     = "% missing (release_price)") +
+  theme_minimal()
+
+print(gg_missing_price)
+
+
+```
+
+I am in doubt that
+
+```{r}
+gpu_num <- gpu_check_missing_pattern %>% 
+  select(release_price, release_year) %>%  # add other numeric vars if desired
+  mutate(across(everything(), as.numeric)) # ensure numeric class
+
+mcar_res <- naniar::mcar_test(gpu_num)
+print(mcar_res)
+```
+
+Little’s MCAR test (χ² = 430.4, df = 2, p \< 0.001) provides strong evidence that release_price is not missing completely at random; missingness is strongly related to release_year. Subsequent modelling and imputations therefore control for release_year to satisfy the weaker MAR assumption.
+
+We decide to treat the missing of release_price as MAR.
+
+Now, decide which predictors enter the imputation model. We decide to use every variable that is:
+
+a) available **before** price is known (no post-treatment bleeding),
+b) has ≤ 50 % missingness,
+c) plausibly related to price (performance, manufacturer, launch date …).
+
+```{r}
+skim(gpu_tidy)
+```
+
+```{r}
+set.seed(1234)        # reproducibility
+
+gpu <- gpu_filtered   # keep original object intact
+```
+
+```{r}
+# ── 2  Visualise the extent & structure of missingness  ───────────
+gg_miss_var(gpu, show_pct = TRUE) +
+  labs(title = "Variable-wise missingness (%) in the GPU data")
+
+gg_miss_upset(gpu, nsets = 15)          # where do variables co-miss?
+```
+
+```{r}
+# ── 3  Specify MICE methods & predictor matrix  ───────────────────
+# a) start from the default method vector produced by mice
+meth <- make.method(gpu)
+
+# b) tell mice which algorithm to use for each type
+num_vars    <- names(which(sapply(gpu, is.numeric)))
+fact_vars   <- names(which(sapply(gpu, is.factor)))
+
+meth[num_vars]  <- "pmm"                 # predictive mean matching
+meth[fact_vars] <- ifelse(sapply(gpu[fact_vars], nlevels) == 2,
+                          "logreg",      # binary factors
+                          "polyreg")     # > 2 levels
+
+# c) exclude release_price completely
+meth["release_price"] <- ""              # empty string ⇒ leave as is
+
+# d) create predictor matrix programmatically
+pred <- quickpred(gpu,
+                  exclude = "release_price",   # do not predict / be predicted by it
+                  mincor  = 0.05,              # drop very weakly correlated vars
+                  method  = "pearson")         # numeric & polyserial correlations
+
+# ensure release_price is not used anywhere
+pred[ , "release_price"] <- 0
+```
+
+```{r}
+# ── 4  Run the MICE engine  ───────────────────────────────────────
+imp_gpu <- mice(data      = gpu,
+                m         = 5,      # five parallel imputed data sets
+                maxit     = 20,     # iterations per chain
+                method    = meth,
+                predictorMatrix = pred,
+                seed      = 1234,
+                printFlag = TRUE)
+
+# Convergence diagnostic
+plot(imp_gpu, layout = c(3, 4))
+```
+
+```{r}
+Mode <- function(x) {
+  ux <- na.omit(unique(x))
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# ── 5  Extract one completed data set keeping release_price as is ─
+gpu_complete <- complete(imp_gpu, action = "long") %>%     # long format (m × n rows)
+  group_by(.id) %>%                                        # .id = original row number
+  summarise(across(everything(), 
+                   ~ if(is.numeric(.x)) mean(.x) else Mode(.x))) %>% 
+  ungroup() %>%                                            # ← our single “average” data set
+  select(-.id)                                             # drop helper column
+
+# bring back the original order of variables
+gpu_complete <- gpu_complete[ names(gpu) ]
+```
+
+```{r}
+# ── 6  Centre & scale numeric predictors (optional but recommended) ─
+num_pred <- setdiff(num_vars, "release_price")  # do NOT touch price column
+
+pre_model <- preProcess(gpu_complete[ , num_pred], 
+                        method = c("center", "scale"))
+
+gpu_final <- gpu_complete          # copy
+gpu_final[ , num_pred] <- predict(pre_model, gpu_complete[ , num_pred])
+
+# quick check
+summary(gpu_final[ , num_pred][1:5])
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+skim(gpu_complete)
+```
+
+```         
+```
+
+```{r}
+write.csv(gpu_complete, file = "gpu_after_mice.csv", row.names = FALSE)
+
+```
+
+### 
