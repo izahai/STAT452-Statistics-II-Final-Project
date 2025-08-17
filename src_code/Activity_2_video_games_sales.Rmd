@@ -8,32 +8,324 @@ output: pdf_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-library(tidyverse)
-library(caret)
-library(randomForest)
-library(skimr)
-library(ggplot2)
-library(dplyr)
-library(janitor)
+library(tidyverse) #most datascience related libraries
+library(FNN) #knn regression
+library(corrplot) # correlation plot
+library(tree) # Decision Tree
+library(caret) #train control
 library(here)
+options(warn=-1) # filter warnings
 
 set.seed(42) # for reproducibility
 knitr::opts_knit$set(root.dir = here::here())
 ```
 
-## 1. Load data
+## 1. Preprocess  data
 
+### 1.1 Load data
 
 ```{r loadData}
-video_games_sales <- read.csv(here("dataset", "Video_Games_Sales_as_at_22_Dec_2016.csv"), stringsAsFactors = FALSE)
-skim(video_games_sales)
+Vgsales <- read.csv(here("dataset", "Video_Games_Sales_as_at_22_Dec_2016.csv"),sep=",",na.strings=c(""," ","NA","N/A"))
+head(Vgsales)
 ```
-
-## 2. Data Preprocessing
-
-You can also embed plots, for example:
 
 ```{r}
-plot(pressure)
+str(Vgsales)
+```
+```{r}
+na_count <-sapply(Vgsales, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+na_count
 ```
 
+### 1.2 Drop NA values
+
+```{r}
+#drop all NA values
+Vgsales <- na.omit(Vgsales)
+str(Vgsales)
+```
+
+### 1.3 
+
+```{r}
+#drop all sales except global
+Vgsales_df <- cbind(Vgsales[,-c(6:10)],Vgsales$Global_Sales)
+Vgsales_df$Year_of_Release <- 2016 - Vgsales_df$Year_of_Release
+names(Vgsales_df)[3] <- "Game_Age"
+names(Vgsales_df)[12] <- "Global_Sales"
+str(Vgsales_df)
+```
+
+```{r}
+#drop all sales except global
+summary(Vgsales_df)
+```
+
+## 2. Visualizations of the data and analysis
+
+### 2.1. Univariate plots
+
+```{r}
+#creating a function to control figure size
+fig <- function(width, heigth){
+     options(repr.plot.width = width, repr.plot.height = heigth)
+}
+```
+
+```{r}
+fig(20,8)
+Platform_bar <- ggplot(Vgsales_df, aes(x=Platform,fill =Platform)) + geom_bar() + theme(text = element_text(size=10))  
+Platform_bar
+```
+
+```{r}
+fig(15,8)
+Age_bar <- ggplot(Vgsales_df, aes(x=Game_Age)) + geom_bar(fill = "cornflowerblue", color = "black") + theme(text = element_text(size=10))  
+Age_bar
+```
+
+```{r}
+fig(15,8)
+Platform_bar <- ggplot(Vgsales_df, aes(x=Genre,fill =Genre)) + geom_bar() + theme(text = element_text(size=10),axis.text.x=element_text(angle = 45,vjust = 0.4,size=10))  
+Platform_bar
+```
+
+```{r}
+fig(12, 8)
+Critic_Score_hist <- ggplot(Vgsales_df, aes(Critic_Score))
+Critic_Score_hist + geom_histogram(binwidth = 4, color = "black",fill = "seagreen1") + theme(text = element_text(size=10))
+```
+
+```{r}
+fig(12, 8)
+Critic_Count_hist <- ggplot(Vgsales_df, aes(Critic_Count))
+Critic_Count_hist + geom_histogram(binwidth = 4, color = "black",fill = "indianred1") + theme(text = element_text(size=10))
+```
+
+```{r}
+fig(20,8)
+Vgsales_df %>% select(Name,User_Score) %>% arrange(desc(User_Score))%>% head(10)%>%
+ggplot(aes(x=Name,y=User_Score,fill=Name))+geom_bar(stat="identity")+
+theme(text = element_text(size=10),legend.position="right",axis.text.x=element_text(angle = 90,vjust = 0.5,hjust = 1,size=5))+labs(x="Game",y="User Scores",title="Top 10 user score games")+ scale_fill_brewer(palette = "Set3")
+```
+```{r}
+fig(12, 8)
+User_Count_Count_hist <- ggplot(Vgsales_df, aes(User_Count))
+User_Count_Count_hist + geom_histogram(color = "black",fill = "lavenderblush") + theme(text = element_text(size=10))
+```
+
+
+```{r}
+fig(15,8)
+Rating_bar <- ggplot(Vgsales_df, aes(x=Rating,fill =Rating)) + geom_bar() + theme(text = element_text(size=10))  
+Rating_bar
+```
+
+```{r}
+fig(12, 8)
+Global_Sales_hist <- ggplot(Vgsales_df, aes(Global_Sales))
+Global_Sales_hist + geom_histogram(binwidth = 2, color = "black",fill = "tomato") + theme(text = element_text(size=10))
+```
+### 2.2. Multivariate plots
+
+```{r}
+fig(20,8)
+sales_by_platform <- ggplot(Vgsales_df, aes(Platform,Global_Sales,fill =Platform))
+sales_by_platform +geom_bar(stat = "identity") + 
+theme(text = element_text(size=10),legend.position="right",axis.text.x=element_text(angle = 90,vjust = 0.5,hjust = 1,size=5))+labs(x="Platform",y="Global Sales",title="Sales by Platform")
+```
+
+
+```{r}
+Vgsales_df %>% select(Publisher,Global_Sales)%>%group_by(Publisher)%>%
+summarise(Total_sales=sum(Global_Sales))%>%arrange(desc(Total_sales))%>% head(10)%>%
+ggplot(aes(x=Publisher,y=Total_sales,fill=Publisher))+geom_bar(stat="identity")+
+theme(text = element_text(size=10),legend.position="right",axis.text.x=element_text(angle = 90,vjust = 0.5,hjust = 1,size=5))+labs(x="Publisher",y="Global Sales",title="Top 10 Publishers")+scale_fill_brewer(palette="Paired")
+```
+
+```{r}
+fig(20,8)
+Vgsales_df %>% select(Developer,Global_Sales)%>%group_by(Developer)%>%
+summarise(Total_sales=sum(Global_Sales))%>%arrange(desc(Total_sales))%>% head(10)%>%
+ggplot(aes(x=Developer,y=Total_sales,fill=Developer))+geom_bar(stat="identity")+
+theme(text = element_text(size=10),legend.position="right",axis.text.x=element_text(angle = 90,vjust = 0.5,hjust = 1,size=5))+labs(x="Developer",y="Global Sales",title="Top 10 selling Developers")+scale_fill_brewer(palette="PuOr")
+```
+
+```{r}
+Vgsales_df %>% select(Name,Global_Sales) %>% arrange(desc(Global_Sales))%>% head(10)%>%
+ggplot(aes(x=Name,y=Global_Sales,fill=Name))+geom_bar(stat="identity")+
+theme(text = element_text(size=10),legend.position="right",axis.text.x=element_text(angle = 90,vjust = 0.5,hjust = 1,size=5))+labs(x="Developer",y="Total Sales",title="Top 10 selling Developers")+labs(x="Game",y="Global Sales",title="Top 10 selling games")+scale_fill_brewer(palette="Spectral")
+```
+
+```{r}
+Gs <- ggplot(Vgsales_df, aes(Game_Age,Global_Sales))
+Gs + geom_jitter(color = "violetred1") + theme(text = element_text(size = 10))
+```
+
+```{r}
+Cs <- ggplot(Vgsales_df, aes(Critic_Score,Global_Sales))
+Cs + geom_jitter(color = "darkblue") + theme(text = element_text(size = 10))
+```
+
+```{r}
+Ccs <- ggplot(Vgsales_df, aes(Critic_Count,Global_Sales))
+Ccs + geom_jitter(color = "red") + theme(text = element_text(size = 10))
+```
+
+
+```{r}
+Us <- ggplot(Vgsales_df, aes(User_Count,Global_Sales))
+Us + geom_jitter(color = "orange") + theme(text = element_text(size = 10))
+```
+
+## 3. Linear Regression
+
+### 3.1. Data Preperation
+
+```{r}
+Vgsales_df <- Vgsales_df[,-1]
+lr.df <- Vgsales_df
+str(lr.df)
+```
+
+### 3.2. Train and Test
+
+```{r}
+set.seed(5)
+train.size <- floor(0.7*nrow(lr.df))
+train.index <- sample(1:nrow(lr.df),train.size, replace = F)
+train.set <- lr.df[train.index,]
+test.set <- lr.df[-train.index,]
+```
+
+### 3.3. First Model
+
+```{r}
+reg1 <- lm(Global_Sales ~., data = test.set)
+predicted1 = predict(reg1, newdata = test.set)
+Mse = mean((test.set$Global_Sales - predicted1)^2)
+#summary(reg1)
+cat("Mse = ",Mse)
+```
+
+### 3.4. Model improvement
+
+```{r}
+lr.df1 <- lr.df 
+lr.df1$Platform <- as.numeric(lr.df1$Platform)
+lr.df1$Genre <- as.numeric(lr.df1$Genre)
+lr.df1$Publisher <- as.numeric(lr.df1$Publisher)
+lr.df1$User_Score <- as.numeric(lr.df1$User_Score)
+lr.df1$Developer <- as.numeric(lr.df1$Developer)
+lr.df1$Rating <- as.numeric(lr.df1$Rating)
+Vgs.cor = cor(lr.df1)
+corrplot(Vgs.cor,method = "pie")
+```
+
+
+```{r}
+reg2 <- lm(Global_Sales ~Critic_Score + Critic_Count + User_Count, data = train.set)
+summary(reg2)
+```
+
+
+```{r}
+predicted2 = predict(reg2, newdata = test.set)
+Mse = mean((test.set$Global_Sales - predicted2)^2)
+cat("Mse = ",Mse)
+```
+
+### 3.5. 3-fold cross validation
+```{r}
+# Define training control
+train.control <- trainControl(method = "cv", number = 3)
+
+model <- train(Global_Sales ~., data = lr.df, method = "lm",
+               trControl = train.control)
+# Summarize the results
+print(model)
+```
+
+## 4. ANOVA / t-tests
+
+Compare mean Global_Sales across different Genres or Ratings.
+
+```{r}
+# ANOVA: Compare mean Global_Sales across Genres
+anova_genre <- aov(Global_Sales ~ Genre, data = Vgsales_df)
+summary(anova_genre)
+
+# If significant, check pairwise comparisons
+TukeyHSD(anova_genre)
+```
+
+```{r}
+# ANOVA: Compare mean Global_Sales across Ratings
+anova_rating <- aov(Global_Sales ~ Rating, data = Vgsales_df)
+summary(anova_rating)
+
+# If significant, check pairwise comparisons
+TukeyHSD(anova_rating)
+```
+
+Test if Critic_score significantly differs across Platforms.
+```{r}
+anova_platform <- aov(Critic_Score ~ Platform, data = Vgsales_df)
+summary(anova_platform)
+
+# Post-hoc Tukey test
+TukeyHSD(anova_platform)
+```
+## 5. Chi-Square Test
+
+Check association between categorical variables (e.g., Genre vs. Rating, Platform vs. Rating).
+
+### 5.1. Genre × Rating
+
+```{r}
+# Cross-tabulation
+genre_rating_table <- table(Vgsales_df$Genre, Vgsales_df$Rating)
+genre_rating_table
+
+# Chi-Square test of independence
+chisq.test(genre_rating_table)
+```
+
+### 5.2. Platform × Rating
+
+```{r}
+# Cross-tabulation
+platform_rating_table <- table(Vgsales_df$Platform, Vgsales_df$Rating)
+platform_rating_table
+
+# Chi-Square test of independence
+chisq.test(platform_rating_table)
+```
+
+### 5.3. Platform × Genre
+
+```{r}
+# Cross-tabulation
+platform_genre_table <- table(Vgsales_df$Platform, Vgsales_df$Genre)
+platform_genre_table
+
+# Chi-Square test of independence
+chisq.test(platform_genre_table)
+```
+
+
+### 5.4. Visualization of Associations
+
+```{r}
+library(ggplot2)
+
+# Heatmap for Genre × Rating
+genre_rating_df <- as.data.frame(genre_rating_table)
+ggplot(genre_rating_df, aes(x=Var2, y=Var1, fill=Freq)) +
+  geom_tile(color="white") +
+  scale_fill_gradient(low="white", high="steelblue") +
+  labs(x="Rating", y="Genre", title="Heatmap of Genre × Rating") +
+  theme_minimal()
+
+```
