@@ -17,10 +17,12 @@ library(here)
 options(warn=-1) # filter warnings
 
 set.seed(42) # for reproducibility
+library(caret)
+library(glmnet)
 knitr::opts_knit$set(root.dir = here::here())
 ```
 
-## 1. Preprocess  data
+## 1. Preprocess data
 
 ### 1.1 Load data
 
@@ -32,6 +34,7 @@ head(Vgsales)
 ```{r}
 str(Vgsales)
 ```
+
 ```{r}
 na_count <-sapply(Vgsales, function(y) sum(length(which(is.na(y)))))
 na_count <- data.frame(na_count)
@@ -46,7 +49,7 @@ Vgsales <- na.omit(Vgsales)
 str(Vgsales)
 ```
 
-### 1.3 
+### 1.3
 
 ```{r}
 #drop all sales except global
@@ -62,7 +65,7 @@ str(Vgsales_df)
 summary(Vgsales_df)
 ```
 
-## 2. Visualizations of the data and analysis
+## 2. Perform descriptive statistics on the dataset
 
 ### 2.1. Univariate plots
 
@@ -109,12 +112,12 @@ Vgsales_df %>% select(Name,User_Score) %>% arrange(desc(User_Score))%>% head(10)
 ggplot(aes(x=Name,y=User_Score,fill=Name))+geom_bar(stat="identity")+
 theme(text = element_text(size=10),legend.position="right",axis.text.x=element_text(angle = 90,vjust = 0.5,hjust = 1,size=5))+labs(x="Game",y="User Scores",title="Top 10 user score games")+ scale_fill_brewer(palette = "Set3")
 ```
+
 ```{r}
 fig(12, 8)
 User_Count_Count_hist <- ggplot(Vgsales_df, aes(User_Count))
 User_Count_Count_hist + geom_histogram(color = "black",fill = "lavenderblush") + theme(text = element_text(size=10))
 ```
-
 
 ```{r}
 fig(15,8)
@@ -127,6 +130,7 @@ fig(12, 8)
 Global_Sales_hist <- ggplot(Vgsales_df, aes(Global_Sales))
 Global_Sales_hist + geom_histogram(binwidth = 2, color = "black",fill = "tomato") + theme(text = element_text(size=10))
 ```
+
 ### 2.2. Multivariate plots
 
 ```{r}
@@ -135,7 +139,6 @@ sales_by_platform <- ggplot(Vgsales_df, aes(Platform,Global_Sales,fill =Platform
 sales_by_platform +geom_bar(stat = "identity") + 
 theme(text = element_text(size=10),legend.position="right",axis.text.x=element_text(angle = 90,vjust = 0.5,hjust = 1,size=5))+labs(x="Platform",y="Global Sales",title="Sales by Platform")
 ```
-
 
 ```{r}
 Vgsales_df %>% select(Publisher,Global_Sales)%>%group_by(Publisher)%>%
@@ -173,15 +176,14 @@ Ccs <- ggplot(Vgsales_df, aes(Critic_Count,Global_Sales))
 Ccs + geom_jitter(color = "red") + theme(text = element_text(size = 10))
 ```
 
-
 ```{r}
 Us <- ggplot(Vgsales_df, aes(User_Count,Global_Sales))
 Us + geom_jitter(color = "orange") + theme(text = element_text(size = 10))
 ```
 
-## 3. Linear Regression
+## 3. Statistical Models For Regression
 
-### 3.1. Data Preperation
+**Data Preperation**
 
 ```{r}
 Vgsales_df <- Vgsales_df[,-1]
@@ -189,7 +191,7 @@ lr.df <- Vgsales_df
 str(lr.df)
 ```
 
-### 3.2. Train and Test
+**Train and Test**
 
 ```{r}
 set.seed(5)
@@ -199,53 +201,117 @@ train.set <- lr.df[train.index,]
 test.set <- lr.df[-train.index,]
 ```
 
-### 3.3. First Model
+### 3.1. Simple Linear Regression
+
+#### 3.1.1. Full Model
 
 ```{r}
 reg1 <- lm(Global_Sales ~., data = test.set)
 predicted1 = predict(reg1, newdata = test.set)
 Mse = mean((test.set$Global_Sales - predicted1)^2)
-#summary(reg1)
+summary(reg1)
 cat("Mse = ",Mse)
 ```
 
-### 3.4. Model improvement
+#### 3.1.2. Model improvement using stepwise variable selection (AIC criterion)
+
+**Correlation Plot**
 
 ```{r}
 lr.df1 <- lr.df 
-lr.df1$Platform <- as.numeric(lr.df1$Platform)
-lr.df1$Genre <- as.numeric(lr.df1$Genre)
-lr.df1$Publisher <- as.numeric(lr.df1$Publisher)
-lr.df1$User_Score <- as.numeric(lr.df1$User_Score)
-lr.df1$Developer <- as.numeric(lr.df1$Developer)
-lr.df1$Rating <- as.numeric(lr.df1$Rating)
-Vgs.cor = cor(lr.df1)
-corrplot(Vgs.cor,method = "pie")
+
+# Convert categorical variables into numeric codes
+lr.df1$Platform   <- as.numeric(factor(lr.df1$Platform))
+lr.df1$Genre      <- as.numeric(factor(lr.df1$Genre))
+lr.df1$Publisher  <- as.numeric(factor(lr.df1$Publisher))
+lr.df1$Developer  <- as.numeric(factor(lr.df1$Developer))
+lr.df1$Rating     <- as.numeric(factor(lr.df1$Rating))
+
+# Convert User_Score safely to numeric
+lr.df1$User_Score <- as.numeric(as.character(lr.df1$User_Score))
+
+# Keep only numeric columns
+numeric_df <- lr.df1[sapply(lr.df1, is.numeric)]
+
+# Compute correlation matrix
+Vgs.cor <- cor(numeric_df, use = "complete.obs")
+
+# Plot
+corrplot(Vgs.cor, method = "pie")
 ```
 
+**Stepwise selection (both directions)**
+
+Stepwise selection confirms that review-related metrics (Critic_Score, Critic_Count, and User_Count), along with game characteristics such as platform, genre, age, and rating, are significant drivers of global video game sales. Interestingly, User_Score was not retained in the final model, suggesting that while professional reviews and user engagement volume matter, the average user rating itself does not provide additional predictive power once these other factors are accounted for.
 
 ```{r}
-reg2 <- lm(Global_Sales ~Critic_Score + Critic_Count + User_Count, data = train.set)
-summary(reg2)
+# Start with a full model (all predictors)
+full_model <- lm(Global_Sales ~ ., data = train.set)
+
+# Start with a null model (only intercept)
+null_model <- lm(Global_Sales ~ 1, data = train.set)
+
+# Stepwise selection (both directions)
+step_model <- step(null_model, 
+                   scope = list(lower = null_model, upper = full_model), 
+                   direction = "both", 
+                   trace = 1)
+
+summary(step_model)
 ```
 
+#### 3.1.2. Model improvement using stepwise variable selection (AIC criterion)
 
-```{r}
-predicted2 = predict(reg2, newdata = test.set)
-Mse = mean((test.set$Global_Sales - predicted2)^2)
-cat("Mse = ",Mse)
-```
 
-### 3.5. 3-fold cross validation
+#### 3.1.3. 3-fold cross validation on full model
+
 ```{r}
 # Define training control
 train.control <- trainControl(method = "cv", number = 3)
 
+set.seed(123)
 model <- train(Global_Sales ~., data = lr.df, method = "lm",
                trControl = train.control)
 # Summarize the results
 print(model)
 ```
+
+### 3.2. Ridge Linear Regression
+
+```{r}
+# Ridge Regression (alpha = 0)
+ridge_grid <- expand.grid(alpha = 0, lambda = seq(0.0001, 1, length = 50))
+
+set.seed(123)
+ridge_model <- train(Global_Sales ~ ., data = lr.df,
+                     method = "glmnet",
+                     trControl = trainControl(method = "cv", number = 3),
+                     tuneGrid = ridge_grid)
+
+# Print best λ and CV results
+cat("Best Ridge Lambda =", ridge_model$bestTune$lambda, "\n")
+print(ridge_model$results[ridge_model$results$lambda == ridge_model$bestTune$lambda, ])
+```
+
+### 3.3. Lasso Linear Regression
+
+```{r}
+# Lasso Regression (alpha = 1)
+lasso_grid <- expand.grid(alpha = 1, lambda = seq(0.0001, 1, length = 50))
+
+set.seed(123)
+lasso_model <- train(Global_Sales ~ ., data = lr.df,
+                     method = "glmnet",
+                     trControl = trainControl(method = "cv", number = 3),
+                     tuneGrid = lasso_grid)
+
+# Print best λ and CV results
+cat("Best Lasso Lambda =", lasso_model$bestTune$lambda, "\n")
+print(lasso_model$results[lasso_model$results$lambda == lasso_model$bestTune$lambda, ])
+```
+
+### 3.3. Lasso Linear Regression
+
 
 ## 4. ANOVA / t-tests
 
@@ -270,6 +336,7 @@ TukeyHSD(anova_rating)
 ```
 
 Test if Critic_score significantly differs across Platforms.
+
 ```{r}
 anova_platform <- aov(Critic_Score ~ Platform, data = Vgsales_df)
 summary(anova_platform)
@@ -277,6 +344,7 @@ summary(anova_platform)
 # Post-hoc Tukey test
 TukeyHSD(anova_platform)
 ```
+
 ## 5. Chi-Square Test
 
 Check association between categorical variables (e.g., Genre vs. Rating, Platform vs. Rating).
@@ -314,7 +382,6 @@ platform_genre_table
 chisq.test(platform_genre_table)
 ```
 
-
 ### 5.4. Visualization of Associations
 
 ```{r}
@@ -327,5 +394,4 @@ ggplot(genre_rating_df, aes(x=Var2, y=Var1, fill=Freq)) +
   scale_fill_gradient(low="white", high="steelblue") +
   labs(x="Rating", y="Genre", title="Heatmap of Genre × Rating") +
   theme_minimal()
-
 ```
