@@ -205,12 +205,23 @@ test.set <- lr.df[-train.index,]
 
 #### 3.1.1. Full Model
 
+Fit the model on the training set only and measure MSE on the held-out test set. Fitting and evaluating on the same rows would understate the error.
+
+Publisher and Developer have many rare categories, so some test rows contain categories that never appear in the training set, and `predict()` cannot score them. We evaluate on the test rows whose categories were all seen during training and report how many rows that is.
+
 ```{r}
-reg1 <- lm(Global_Sales ~., data = test.set)
-predicted1 = predict(reg1, newdata = test.set)
-Mse = mean((test.set$Global_Sales - predicted1)^2)
+reg1 <- lm(Global_Sales ~., data = train.set)
+
+# Keep only test rows whose categorical values all appear in the training set
+cat_cols <- names(train.set)[sapply(train.set, function(x) is.character(x) || is.factor(x))]
+seen <- Reduce(`&`, lapply(cat_cols, function(col) test.set[[col]] %in% unique(train.set[[col]])))
+test.eval <- test.set[seen, ]
+cat("Test rows evaluated:", nrow(test.eval), "of", nrow(test.set), "\n")
+
+predicted1 <- predict(reg1, newdata = test.eval)
+Mse <- mean((test.eval$Global_Sales - predicted1)^2)
 summary(reg1)
-cat("Mse = ",Mse)
+cat("Test MSE =", Mse)
 ```
 
 #### 3.1.2. Model improvement using stepwise variable selection (AIC criterion)
